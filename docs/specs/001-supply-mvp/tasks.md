@@ -12,32 +12,68 @@ tarea no puede cerrarse sin romper otra cosa, es que está mal cortada: pártela
 
 ## Fase 0 — Andamiaje
 
-### - [ ] T-01 · `package.json` y guiones
+### - [x] T-01 · `package.json` y guiones
 
 **Depende de:** nada · **Cubre:** constitución 1
 
 - Declarar las seis dependencias de §7 del plan y ninguna más.
-- Guiones: `start` (`cds-serve`), `test` (`jest`), `deploy` (`cds deploy`).
+- Guiones: `start` (`cds-serve`), `test` (`jest`), `deploy` (`cds-deploy`).
 - Namespace `supply`, Node 20+.
 
 **Hecho cuando:** `npm install` termina sin errores y `npm test` falla con
 «no tests found», no con ENOENT.
 
+**Cerrada el 2026-09-18.** `npm install` añade 430 paquetes sin vulnerabilidades
+y `npm test` pasa 6 de 6. Se cierra por encima de la condición escrita: en vez de
+dejar la suite vacía, `test/unit/package-manifest.test.js` fija el conjunto de
+dependencias permitidas, de modo que el principio 1 deja de depender de la
+revisión visual del PR. Versiones instaladas: `@sap/cds@9.9.3`,
+`@cap-js-community/odata-v2-adapter@1.16.1`, `express@4.22.3`,
+`@cap-js/hana@2.8.3`, `@cap-js/sqlite@2.4.3`, `jest@30.5.2`.
+
+El namespace `supply` no se declara aquí: en CAP vive en `db/schema.cds`, y lo
+fija T-03.
+
 ---
 
-### - [ ] T-02 · `server.js` con el adaptador OData V2
+### - [x] T-02 · Adaptador OData V2
 
 **Depende de:** T-01 · **Cubre:** D-1 del plan
 
 - Montar `@cap-js-community/odata-v2-adapter` sobre el servidor de CAP.
-- Dejar V4 accesible en `/supply` para depurar; V2 en `/v2/supply`.
+- Dejar V4 accesible en `/supply` para depurar; V2 en `/odata/v2/supply`.
 
-**Hecho cuando:** `cds-serve` arranca y `GET /v2/supply/$metadata` devuelve 200
+**Hecho cuando:** `cds-serve` arranca y `GET /odata/v2/supply/$metadata` devuelve 200
 con `DataServiceVersion: 2.0` en la cabecera.
+
+**Cerrada el 2026-09-18, sin escribir `server.js`.** La tarea se titulaba
+«`server.js` con el adaptador» y esa premisa era falsa: el adaptador trae
+`cds-plugin.js` y CAP lo descubre solo al arrancar. Un `server.js` que repitiera
+ese montaje sería código muerto, así que el proyecto no lo tiene y
+`test/unit/odata-v2-adapter.test.js` fija esa ausencia como decisión.
+
+**Rutas reales, medidas con una sonda desechable** (un `.cds` mínimo fuera del
+proyecto, para no adelantar T-03):
+
+| Ruta | Resultado |
+|---|---|
+| `GET /odata/v2/supply/$metadata` | **200**, `dataserviceversion: 2.0`, EDMX v2 |
+| `GET /supply/$metadata` | 200, EDMX `Version="4.0"` |
+| `GET /v2/supply/$metadata` | **404** — era la ruta que decía el plan |
+
+La condición «Hecho cuando» quedó verificada así, a mano. Su versión automática
+llega en T-06, que es la primera tarea con modelo propio contra el que arrancar
+`cds.test`.
+
+**Corregido de paso, fuera del alcance nominal de T-02:** el guion `deploy` de
+T-01 decía `cds deploy`, un binario que no existe — `@sap/cds` solo publica
+`cds-serve` y `cds-deploy`; la CLI `cds` vive en `@sap/cds-dk`, que no está entre
+las seis dependencias justificadas. Ahora es `cds-deploy`, y un test nuevo
+comprueba que todo guion apunte a un binario instalado.
 
 ---
 
-### - [ ] T-03 · `db/schema.cds`
+### - [x] T-03 · `db/schema.cds`
 
 **Depende de:** T-01 · **Cubre:** RF-2, RF-3, RF-21, RF-30, RF-33, RF-34
 
@@ -48,12 +84,34 @@ con `DataServiceVersion: 2.0` en la cabecera.
 - **Sin** campo de anulación en las posiciones (RF-30) y **sin** los campos que
   la spec deja fuera de alcance.
 
-**Hecho cuando:** `cds compile db/schema.cds` no da avisos y `cds deploy` crea la
+**Hecho cuando:** `cds compile db/schema.cds` no da avisos y `cds-deploy` crea la
 base SQLite desde cero.
+
+**Cerrada el 2026-09-18.** Ambas mitades verificadas: el compilador devuelve
+**0 mensajes** y genera las cuatro tablas, y el despliegue a SQLite en memoria
+funciona desde el modelo solo. `npm test` pasa 32 de 32, 21 de ellos nuevos en
+`test/unit/schema.test.js`.
+
+La condición se comprobó **desde el test**, no desde la CLI: `cds compile` no
+existe como binario —igual que pasó con `cds deploy` en T-02—, así que el test
+usa `cds.load`, `cds.compile.to.sql` y `cds.deploy`. Queda mejor cubierto que con
+el comando, porque la comprobación se repite en cada `npm test`.
+
+Los tests fijan lo que la spec **no** permite: sin marca de anulación en ninguna
+entidad (RF-30), sin solicitante, fecha de necesidad ni centro en la cabecera, y
+sin copia histórica del transportista. Un campo fuera de alcance rompe la suite.
+
+DDL generado, como comprobación de que las decisiones del plan llegaron a la base:
+
+```sql
+status     NVARCHAR(10) DEFAULT 'BORRADOR'   -- D-7: valor en español
+lastItemNo INTEGER      DEFAULT 0            -- D-4: contador monótono
+carrier_code NVARCHAR(10)                    -- D-5: la clave es el código
+```
 
 ---
 
-### - [ ] T-04 · `srv/supply-service.cds` y handler vacío
+### - [x] T-04 · `srv/supply-service.cds` y handler vacío
 
 **Depende de:** T-03 · **Cubre:** RF-2, RF-38, RF-46, RF-47
 
@@ -65,13 +123,33 @@ base SQLite desde cero.
 **Hecho cuando:** `$metadata` lista `SupplyRequests`, `SupplyRequestItems` y
 `Carriers`, no lista `NumberRanges` y no contiene `lastItemNo`.
 
+**Cerrada el 2026-09-18.** `npm test` pasa 44 de 44, 12 nuevos en
+`test/unit/service-model.test.js`. La condición se verificó dos veces: en el test
+sobre el EDMX compilado, y a mano contra el `$metadata` V2 real servido por
+`cds-serve`, que lista los tres `EntitySet` y devuelve **cero** coincidencias de
+`NumberRanges` y de `lastItemNo`.
+
+**Segunda corrección al plan en dos tareas.** Las acciones en V2 llevan el nombre
+de la entidad por delante: `SupplyRequests_register`, no `register`. La URL que
+daba el plan devuelve **404**; la real responde **501 «no handler»**, que es el
+estado correcto aquí, con la acción declarada y sin implementar (llega en T-27 y
+T-30). Corregido en §4 del plan, con el `FunctionImport` real como evidencia.
+
+**`srv/supply-service.js` sí se creó**, a diferencia del `server.js` de T-02.
+La diferencia: aquel habría duplicado lo que el framework ya hace, mientras que
+este es el punto de enganche que CAP resuelve **por convención de nombre**, y el
+test lo comprueba. Si el fichero se llamara mal, no fallaría nada de forma
+ruidosa: simplemente ninguna guarda posterior quedaría registrada. Verificado en
+el arranque, donde `impl` pasa de `node_modules\@sap\cds\srv\app-service.js` a
+`srv\supply-service.js`.
+
 ---
 
-### - [ ] T-05 · Mensajes: `_i18n` y `lib/messages.js`
+### - [x] T-05 · Mensajes: `_i18n` y `lib/messages.js`
 
 **Depende de:** T-01 · **Cubre:** RF-49, RNF-1
 
-- `_i18n/messages.properties` con las catorce claves de §5 del plan, en español.
+- `_i18n/messages_es.properties` con las catorce claves de §5 del plan, en español.
 - `_i18n/messages_en.properties` con las mismas claves en inglés.
 - Redefinir los textos por defecto de CAP para `@mandatory` y `@assert.target`.
 - `srv/lib/messages.js`: solo constantes de código, cero texto.
@@ -79,18 +157,70 @@ base SQLite desde cero.
 **Hecho cuando:** `grep` sobre `srv/` no encuentra ninguna cadena en español, y
 las claves de `messages.js` coinciden una a una con las de ambos `.properties`.
 
+**Cerrada el 2026-09-18.** `npm test` pasa 62 de 62, 18 nuevos en
+`test/unit/messages.test.js`.
+
+**Dos fallos silenciosos encontrados por los tests**, ambos del tipo que no
+rompe nada visiblemente y deja el idioma equivocado en producción:
+
+1. **`default_language` de CAP es `'en'`.** Con los bundles escritos y sin tocar
+   configuración, *todo* resolvía a inglés, incluso pidiendo `es`. Corregido con
+   `cds.i18n.default_language = 'es'` en `package.json`. Ahora cualquier idioma
+   sin traducir cae a español, que es lo que pide RNF-1.
+2. **Un `messages.properties` sin sufijo pierde** frente al
+   `messages_es.properties` que trae CAP: las redefiniciones de
+   `ASSERT_MANDATORY` y `ASSERT_TARGET` no llegaban a aplicarse y salía el texto
+   de CAP. Por eso el bundle español lleva sufijo y **no existe fichero
+   genérico** — dos ficheros, sin duplicación.
+
+El test no se conforma con que la clave esté definida: comprueba que el valor que
+**resuelve** CAP sea el nuestro. La primera versión solo miraba el fichero y
+habría dado verde con el bug puesto.
+
+También se comprobó que los `.properties` se leen como UTF-8, así que el español
+va con tildes. Y un test impide que vuelva a aparecer texto en español bajo
+`srv/`, o cualquier cadena entrecomillada larga que huela a mensaje.
+
 ---
 
-### - [ ] T-06 · Arranque de la suite de tests
+### - [x] T-06 · Arranque de la suite de tests
 
 **Depende de:** T-02, T-04 · **Cubre:** constitución 4
 
 - Configurar Jest y un helper que levante `cds.test` con SQLite en memoria y el
   adaptador V2 montado.
-- Primer test (`test/integration/odata-v2.test.js`): `$metadata` responde EDMX 2.0.
+- Primer test (`test/integration/odata-v2.test.js`): el endpoint V2 responde por
+  HTTP en formato V2.
 
 **Hecho cuando:** `npm test` pasa con un test verde que hace una llamada HTTP real
-a `/v2/supply/$metadata`.
+a `/odata/v2/supply`.
+
+**Cerrada el 2026-09-18.** `npm test` pasa 72 de 72, 10 nuevos en
+`test/integration/odata-v2.test.js`, el primer fichero que va por HTTP.
+
+**Séptima dependencia, decidida contigo.** `cds.test` dejó de venir dentro de
+`@sap/cds` en CAP 9: vive en `@cap-js/cds-test`, que no estaba instalado. El plan
+mandaba usarlo sin haberlo incluido entre las seis dependencias, así que se
+contradecía. Antes de proponerlo se verificó que la alternativa sin dependencia
+no era viable: arrancar CAP en proceso a mano sirve V4 en 200 pero deja el
+adaptador V2 en **404**, con puerto fijo y con puerto aleatorio. Añadida como
+`devDependency` y justificada en §7 del plan.
+
+**La condición de cierre cambió, porque `$metadata` no funciona aquí.** La ruta
+`$metadata` del adaptador falla dentro de `cds.test` —entrega a `res.write` algo
+que no es cadena y responde 500— mientras que bajo `cds-serve` devuelve EDMX v2
+correcto. Se descartaron como causa el idioma por defecto de T-05 y los tres
+modos de `cacheMetadata`. Afecta **solo** a `$metadata`: todas las peticiones de
+datos V2 funcionan.
+
+El test queda como `test.failing`, no como `skip`: así avisará el día que el
+adaptador lo arregle y haya que borrarlo. Lo que `$metadata` demostraría ya está
+cubierto en `test/unit/service-model.test.js` contra el EDMX compilado.
+
+En su lugar el arranque se demuestra con algo más fuerte: el envoltorio V2. Un
+`GET` devuelve `{d:{results:[]}}` —V4 devolvería `{value:[]}`— y un `POST`
+devuelve 201 con `__metadata.type` y la uri `Carriers('TR-01')`, sintaxis de
+clave V2. Eso prueba que el adaptador **traduce**, no que solo enruta.
 
 ---
 
@@ -160,7 +290,7 @@ asignado devuelve 409 con el recuento dentro del mensaje.
   de uno en uso.
 
 **Hecho cuando:** la entidad `Carriers` tiene CRUD completo y cuatro casos de
-error verdes contra `/v2/supply/Carriers`.
+error verdes contra `/odata/v2/supply/Carriers`.
 
 ---
 
@@ -474,7 +604,7 @@ devuelve texto en inglés ni la clave sin resolver.
 **Depende de:** T-34 · **Cubre:** RNF-4, criterios de finalización 1-5
 
 - `npm test` en verde con `check:lines` encadenado.
-- `cds deploy` reconstruye desde cero y la suite vuelve a pasar.
+- `cds-deploy` reconstruye desde cero y la suite vuelve a pasar.
 - Recorrido manual del flujo principal de la spec, de crear a liberar.
 - Repasar la matriz de §9 del plan y marcar cada RF con el test que lo cubre.
 

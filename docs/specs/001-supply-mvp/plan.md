@@ -11,9 +11,14 @@ están en la spec y no se repiten. Toda decisión se justifica contra la
 ### D-1. OData V2 mediante adaptador, no nativo
 
 **Decisión.** CAP para Node.js sirve OData **V4**; `cds-serve` por sí solo no
-expone V2. Se monta `@cap-js-community/odata-v2-adapter` en un `server.js` que
-registra el middleware antes de arrancar el servicio. El servicio se define una
-sola vez en CDS y el adaptador traduce V2 ↔ V4 en ambos sentidos.
+expone V2. Se añade `@cap-js-community/odata-v2-adapter`, que **se registra solo
+como plugin de CDS**: no hace falta `server.js`. El servicio se define una sola
+vez en CDS y el adaptador traduce V2 ↔ V4 en ambos sentidos.
+
+> **Corregido en T-02 (2026-09-18).** La primera redacción de esta decisión decía
+> que el adaptador se montaba a mano en un `server.js`. Es innecesario: el
+> paquete trae `cds-plugin.js` y CAP lo descubre al arrancar. Un `server.js` que
+> repitiera ese montaje sería código muerto, así que el proyecto no lo tiene.
 
 **Por qué.** Es la vía soportada por SAP para V2 en CAP Node y la única que
 mantiene un solo modelo CDS. La spec y `AGENTS.md` fijan V2 como contrato de
@@ -62,7 +67,7 @@ SELECT.one.from(NumberRanges).where({name:'SUPPLY_REQUEST'}).forUpdate()
 La fila se crea de forma perezosa en el primer registro, sin CSV de carga.
 
 **Por qué.** `forUpdate()` serializa los registros concurrentes, que es lo que
-RNF-3 exige. Vive en `db/schema.cds`, así que `cds deploy` la reconstruye desde
+RNF-3 exige. Vive en `db/schema.cds`, así que `cds-deploy` la reconstruye desde
 cero (constitución 5) y funciona igual en SQLite para los tests y en HANA en
 producción. Es monótona, luego nunca decrece: RF-10 sale gratis.
 
@@ -320,36 +325,54 @@ excluye de la proyección, de modo que no aparece en `$metadata` (D-4).
 
 ### Endpoints resultantes
 
-Con el adaptador montado, el servicio queda en `/v2/supply` (V4 sigue disponible
-en `/supply` para depurar, pero el contrato es V2).
+**Rutas reales, medidas en T-02** con una sonda contra CAP 9.9.3 y el adaptador
+1.16.1. El servicio declara `@(path:'/supply')`, que al ser absoluto fija la ruta
+V4; el adaptador publica la V2 bajo su base por defecto `odata/v2`:
+
+- **V2 (el contrato):** `/odata/v2/supply/…` — responde `DataServiceVersion: 2.0`
+- **V4 (solo para depurar):** `/supply/…`
+
+> **Corregido en T-02 (2026-09-18).** La primera redacción daba `/odata/v2/supply` y
+> `/supply`. `/odata/v2/supply` devuelve 404: la base por defecto del adaptador es
+> `odata/v2` desde CDS 7. Se adoptan las rutas por defecto en vez de forzar la
+> opción `path`, porque cambiarla obliga a alinear también `targetPath` con la
+> ruta V4 y eso no se puede verificar de verdad hasta que haya datos (T-04).
 
 | Operación | Petición V2 | RF |
 |---|---|---|
-| Metadatos | `GET /v2/supply/$metadata` → EDMX 2.0 | — |
-| Crear borrador | `POST /v2/supply/SupplyRequests` `{"description":"Obra norte"}` | RF-1 |
-| Leer una | `GET /v2/supply/SupplyRequests(guid'…')?$expand=items,carrier` | RF-46 |
-| Listar | `GET /v2/supply/SupplyRequests?$inlinecount=allpages` | RF-47 |
-| Filtrar | `GET /v2/supply/SupplyRequests?$filter=status eq 'REGISTRADA'` | RF-48 |
+| Metadatos | `GET /odata/v2/supply/$metadata` → EDMX 2.0 | — |
+| Crear borrador | `POST /odata/v2/supply/SupplyRequests` `{"description":"Obra norte"}` | RF-1 |
+| Leer una | `GET /odata/v2/supply/SupplyRequests(guid'…')?$expand=items,carrier` | RF-46 |
+| Listar | `GET /odata/v2/supply/SupplyRequests?$inlinecount=allpages` | RF-47 |
+| Filtrar | `GET /odata/v2/supply/SupplyRequests?$filter=status eq 'REGISTRADA'` | RF-48 |
 | | `…?$filter=requestNo eq 1000000` | RF-48 |
 | | `…?$filter=carrier_code eq 'TR-01'` | RF-48 |
-| Editar cabecera | `MERGE /v2/supply/SupplyRequests(guid'…')` | RF-4 |
+| Editar cabecera | `MERGE /odata/v2/supply/SupplyRequests(guid'…')` | RF-4 |
 | Asignar transportista | `MERGE …` `{"carrier_code":"TR-01"}` | RF-43 |
 | Quitar transportista | `MERGE …` `{"carrier_code":null}` | RF-44 |
-| Borrar borrador | `DELETE /v2/supply/SupplyRequests(guid'…')` | RF-5 |
-| Añadir posición | `POST /v2/supply/SupplyRequests(guid'…')/items` | RF-28 |
-| Editar posición | `MERGE /v2/supply/SupplyRequestItems(guid'…')` | RF-29 |
-| Borrar posición | `DELETE /v2/supply/SupplyRequestItems(guid'…')` | RF-30 |
-| Registrar | `POST /v2/supply/register?ID=guid'…'` | RF-7 |
-| Liberar | `POST /v2/supply/release?ID=guid'…'` | RF-14 |
-| Catálogo | `GET|POST|MERGE|DELETE /v2/supply/Carriers('TR-01')` | RF-38, RF-41 |
+| Borrar borrador | `DELETE /odata/v2/supply/SupplyRequests(guid'…')` | RF-5 |
+| Añadir posición | `POST /odata/v2/supply/SupplyRequests(guid'…')/items` | RF-28 |
+| Editar posición | `MERGE /odata/v2/supply/SupplyRequestItems(guid'…')` | RF-29 |
+| Borrar posición | `DELETE /odata/v2/supply/SupplyRequestItems(guid'…')` | RF-30 |
+| Registrar | `POST /odata/v2/supply/SupplyRequests_register?ID=guid'…'` | RF-7 |
+| Liberar | `POST /odata/v2/supply/SupplyRequests_release?ID=guid'…'` | RF-14 |
+| Catálogo | `GET|POST|MERGE|DELETE /odata/v2/supply/Carriers('TR-01')` | RF-38, RF-41 |
 
 ### Particularidades de V2 que condicionan la implementación
 
-1. **Las acciones enlazadas se exponen como *function imports*.** V2 no tiene
-   acciones enlazadas; el adaptador las publica como importaciones de función a
-   las que la clave llega por query string (`?ID=guid'…'`). Los tests de
+1. **Las acciones enlazadas se exponen como *function imports*, con el nombre de
+   la entidad por delante.** V2 no tiene acciones enlazadas; el adaptador las
+   publica como `<Entidad>_<acción>`, con la clave por query string. Los tests de
    integración deben llamarlas así, no con la sintaxis V4
    `SupplyRequests(…)/SupplyService.register`.
+
+   > **Medido en T-04 (2026-09-18).** El nombre lleva prefijo: la primera
+   > redacción daba `/odata/v2/supply/register`, que devuelve **404**. El real es
+   > `/odata/v2/supply/SupplyRequests_register`, que ya responde **501 «no
+   > handler»** porque la acción está declarada y aún sin implementar. En el
+   > `$metadata` V2 aparecen como
+   > `<FunctionImport Name="SupplyRequests_register" m:HttpMethod="POST"
+   > sap:action-for="SupplyService.SupplyRequests">`.
 2. **`Decimal` se serializa como cadena.** `quantity` vuelve como `"5.000"`, no
    como número. Las aserciones de los tests lo tienen en cuenta.
 3. **La clave UUID se escribe `guid'…'`** en la URL, no entre comillas simples.
@@ -366,8 +389,17 @@ en `/supply` para depurar, pero el contrato es V2).
 (constitución 6, RNF-1). Los handlers hacen `req.error(409, MSG.ITEM_REQUIRED)` y
 CAP resuelve la clave contra el bundle.
 
+> **Medido en T-05 (2026-09-18).** Los dos bundles llevan sufijo de idioma
+> —`messages_es.properties` y `messages_en.properties`— y **no hay fichero
+> genérico** `messages.properties`. Un fichero sin sufijo pierde frente al
+> `messages_es.properties` que trae el propio CAP, de modo que las redefiniciones
+> de `ASSERT_MANDATORY` y `ASSERT_TARGET` se quedaban sin efecto en silencio.
+> Además hace falta `cds.i18n.default_language = 'es'` en `package.json`: el
+> valor por defecto de CAP es `'en'`, y sin cambiarlo una petición sin
+> `Accept-Language` recibía todo en inglés, incumpliendo RNF-1.
+
 ```properties
-# _i18n/messages.properties  (español, por defecto)
+# _i18n/messages_es.properties  (español, idioma por defecto)
 ITEM_REQUIRED       = La solicitud necesita al menos una posición para registrarse.
 ITEM_INCOMPLETE     = La posición {0} está incompleta: faltan material, cantidad o unidad.
 ITEM_LAST_ON_REG    = Una solicitud registrada debe conservar al menos una posición.
@@ -406,7 +438,8 @@ También se redefinen aquí los textos por defecto de CAP para `@mandatory` y
 
 ## 7. Dependencias y su justificación
 
-El principio 1 exige justificar cada una. Estas son todas las que habrá:
+El principio 1 exige justificar cada una. Estas son todas las que habrá — **siete
+desde T-06**, no seis como decía la primera redacción:
 
 | Paquete | Ámbito | Justificación |
 |---|---|---|
@@ -414,7 +447,8 @@ El principio 1 exige justificar cada una. Estas son todas las que habrá:
 | `@cap-js-community/odata-v2-adapter` | runtime | **Sin él no hay OData V2.** CAP Node sirve V4; la spec y `AGENTS.md` fijan V2 como contrato. Ver D-1. |
 | `express` | runtime | Peer del adaptador, necesario para montar el middleware en `server.js`. |
 | `@cap-js/hana` | runtime | Driver de la base de datos de destino (HDI). |
-| `@cap-js/sqlite` | dev | Base en memoria para los tests; permite que `cds deploy` reconstruya desde cero en cada suite (constitución 5). |
+| `@cap-js/sqlite` | dev | Base en memoria para los tests; permite que `cds-deploy` reconstruya desde cero en cada suite (constitución 5). |
+| `@cap-js/cds-test` | dev | **Añadida en T-06.** `cds.test` dejó de venir dentro de `@sap/cds` en CAP 9 y vive en este paquete, que no es dependencia suya. Sin él no hay forma razonable de arrancar el servicio en proceso: se verificó que hacerlo a mano deja el adaptador V2 devolviendo 404. Constitución 4 exige test de integración contra OData V2, así que el arranque no es opcional. Solo `dev`: no llega a producción. |
 | `jest` | dev | Único framework de test permitido por `AGENTS.md`. |
 
 No se añade ORM, ni validador (Joi/Zod), ni logger, ni utilidades: las reglas son
@@ -443,7 +477,7 @@ Son los que cubren la combinatoria de estados, que es donde está el riesgo real
 ### 8.2 Integración — `test/integration/`
 
 `cds.test` levanta el servicio con SQLite en memoria y el adaptador V2 montado;
-las llamadas van por HTTP contra `/v2/supply`, no contra la API de Node. Cada
+las llamadas van por HTTP contra `/odata/v2/supply`, no contra la API de Node. Cada
 suite despliega el esquema desde cero, lo que verifica de paso el principio 5.
 
 | Fichero | Recorrido | RF |
@@ -457,7 +491,16 @@ suite despliega el esquema desde cero, lo que verifica de paso el principio 5.
 | `numbering.test.js` | dos registros seguidos dan 1000000 y 1000001; borrar la posición más alta y crear otra **no** reutiliza su número; huecos tras borrar la intermedia | RF-9, RF-10, RF-23, RF-24 |
 | `carrier-reference.test.js` | asignar transportista inexistente → rechazo; cambiar el nombre del transportista y comprobar que una solicitud **LIBERADA** muestra el nombre nuevo | RF-40, RF-45 |
 | `messages.test.js` | recorre los rechazos anteriores comprobando que el cuerpo V2 trae `error.message.value` en español y un `error.code` estable | RF-49, RNF-1 |
-| `odata-v2.test.js` | `$metadata` responde EDMX 2.0; `Decimal` llega como cadena; `$inlinecount` funciona | — |
+| `odata-v2.test.js` | el endpoint V2 responde con `DataServiceVersion: 2.0` y envoltorio `{d:{results}}`; una escritura vuelve con `__metadata` y clave V2; `Decimal` llega como cadena; `$inlinecount` funciona | — |
+
+> **Limitación medida en T-06 (2026-09-18).** La ruta `$metadata` del adaptador
+> **falla dentro de `cds.test`**: entrega un valor que no es cadena a
+> `res.write` y responde 500. Bajo `cds-serve` funciona y devuelve EDMX v2
+> correcto, así que afecta solo al entorno en proceso, y solo a `$metadata`:
+> todas las peticiones de datos V2 funcionan. El test queda marcado como
+> `test.failing`, de modo que avisará cuando el adaptador lo arregle. Lo que
+> `$metadata` demostraría está cubierto en `test/unit/service-model.test.js`
+> contra el EDMX compilado.
 
 ### 8.3 Concurrencia
 
