@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# CAP build output and generated artefacts
+gen/
+srv/odata/
+*.csn
+*.edmx
+
+# Local databases. The service runs in-memory in dev and on HDI in production;
+# any .sqlite file here is a local leftover (constitution 5: no manual DDL, no
+# test data in production).
+*.sqlite
+*.sqlite3
+*.db
+
+# Local environment and credentials
+.env
+default-env.json
+*-credentials.json
+
+# Logs and caches
+*.log
+npm-debug.log*
+.npm/
+coverage/
+
+# Editors and OS
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
