@@ -14,6 +14,13 @@ documentos que lo gobiernan.
 - **`docs/specs/001-supply-mvp/spec.md`** — especificación de las solicitudes de
   abastecimiento (MVP): 50 requisitos funcionales en notación EARS, 4 no
   funcionales, 13 casos límite y el fuera de alcance. Sin dudas abiertas.
+- **`docs/specs/001-supply-mvp/plan.md`** — plan técnico: siete decisiones
+  justificadas con su alternativa descartada, estructura de módulos, modelo de
+  datos, contrato OData V2, estrategia de tests y matriz que asocia cada uno de
+  los 50 RF con el sitio donde se cumple y el test que lo prueba.
+- **`docs/specs/001-supply-mvp/tasks.md`** — 36 tareas de 20-30 minutos en seis
+  fases, en orden de dependencia, cada una con los RF que cubre y una condición
+  de cierre comprobable.
 - **`AGENTS.md`** y **`CLAUDE.md`** — convenciones para agentes: comandos, estilo,
   reglas y qué hacer al terminar una tarea.
 - **`.claude/skills/spec-generator/`** — skill que conduce la entrevista de
@@ -45,6 +52,32 @@ Decisiones de producto cerradas en las dos entrevistas de requisitos del
   **vigentes**, también en las solicitudes ya liberadas.
 - Se pueden **listar y filtrar** solicitudes por número, estado y transportista.
 - No se fija ningún **umbral de rendimiento** en este MVP.
+
+Decisiones técnicas cerradas en el plan 001, cada una con su alternativa
+descartada documentada:
+
+- **OData V2 se sirve con `@cap-js-community/odata-v2-adapter`.** CAP para Node
+  sirve V4; `cds-serve` por sí solo no expone V2. Es la primera dependencia que
+  el principio 1 de la constitución obliga a justificar, y arrastra que las
+  acciones `register` y `release` se publiquen como *function imports* y que los
+  decimales se serialicen como cadena.
+- **El BORRADOR es estado de dominio, no draft de CAP.** Se descarta
+  `@odata.draft.enabled`: su ciclo de edición con tablas sombra y bloqueo por
+  usuario contradice lo que la spec deja fuera de alcance.
+- **El número de solicitud sale de una tabla contador con bloqueo**, no de una
+  secuencia de HANA (sería DDL manual, prohibido por el principio 5) ni de un
+  `max() + 1` (dos registros simultáneos pedirían el mismo número).
+- **El número de posición sale de un contador en la cabecera.** El `max() + 10`
+  evidente incumple RF-24: al borrar la posición más alta, su número se
+  reutilizaría.
+- **El código del transportista es la clave**, lo que hace estructural su
+  inmutabilidad, en lugar de un UUID con el código como campo único.
+- **Las validaciones cuyo mensaje debe nombrar el dato concreto viven en módulos
+  puros**, no en anotaciones: `@readonly` descarta en silencio donde la spec
+  exige rechazar, y `@assert.range` no expresa un límite inferior abierto.
+- **Los valores de estado se almacenan en español** (`BORRADOR`, `REGISTRADA`,
+  `LIBERADA`) con identificadores de enum en inglés: son dato y contrato de
+  filtrado, no texto de interfaz.
 
 ### Corregido
 
